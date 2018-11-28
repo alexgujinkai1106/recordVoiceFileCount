@@ -1,6 +1,8 @@
 package com.action;
 
 import com.ctid.core.exception.ServiceException;
+import com.hibernate.dao.ProvinceDao;
+import com.hibernate.dao.ProvinceDaoImpl;
 import com.opensymphony.xwork2.ActionSupport;
 import com.opensymphony.xwork2.Preparable;
 import com.util.AppContextUtil;
@@ -36,16 +38,18 @@ public class CountVoiceFileAction extends ActionSupport{
     private static final long serialVersionUID = 1L;
     private String message;
     private String date;
-    private String resultStr;
+    private int resultStr;
     private String errorProvince;
     private List<String> errorProvinceList = new ArrayList<>();
     private int errorProvinceListLength = 0;
     private StringBuffer preErrorProvince = new StringBuffer();
-    private Map<String,Integer> preResult = new HashMap<>();
+    private String[] preResult;
     private String[] resultDetail;
+    private final int maxConnCount = 3;
     private Vector<Thread> vector = new Vector<>();
     ApplicationContext ctx = new ClassPathXmlApplicationContext("/com/config/spring/bean.xml");
     private TaskExecutor taskExecutor = (TaskExecutor)ctx.getBean("taskExecutor");
+    private ProvinceDao provinceDao = new ProvinceDaoImpl();
 
     public String getDate() {
         return date;
@@ -55,12 +59,20 @@ public class CountVoiceFileAction extends ActionSupport{
         this.date = date;
     }
 
-    public String getResultStr() {
+    public int getResultStr() {
         return resultStr;
     }
 
-    public void setResultStr(String resultStr) {
+    public void setResultStr(int resultStr) {
         this.resultStr = resultStr;
+    }
+
+    public String[] getPreResult() {
+        return preResult;
+    }
+
+    public void setPreResult(String[] preResult) {
+        this.preResult = preResult;
     }
 
     public String getErrorProvince() {
@@ -103,11 +115,12 @@ public class CountVoiceFileAction extends ActionSupport{
         }
         String provinceCode = AppContextUtil.getProperties("PROVINCE_CODE");
         String[] provinceCodeArray = provinceCode.split(",");
+        preResult = new String[provinceCodeArray.length];
         resultDetail = new String[provinceCodeArray.length];
+        resultStr = provinceCodeArray.length;
         ArrayList<String> newProvinceCodeArray = new ArrayList<String>();
         ArrayList<Map> result = new ArrayList<>();
         final CountDownLatch downLatch = new CountDownLatch(provinceCodeArray.length);
-        System.out.println(downLatch);
         for(int i=0; i < provinceCodeArray.length;i++){
             /*Thread childThread = new Thread(new ProvinceTask(provinceCodeArray,i));
             childThread.start();
@@ -119,7 +132,6 @@ public class CountVoiceFileAction extends ActionSupport{
             thread.join();
         }*/
         errorProvince = preErrorProvince.toString();
-        resultStr = preResult.toString();
         return SUCCESS;
     }
 
@@ -136,97 +148,120 @@ public class CountVoiceFileAction extends ActionSupport{
 
         @Override
         public void run(){
-            System.out.println(downLatch);
-            Map<String,Integer> provinceresult = new HashMap();
-            int totle = 0;
-            for(int j=1; j<=5;j++){
-                /*newProvinceCodeArray.add(provinceCodeArray[i] + "00" +j);*/
-                String provincecode = provinceCodeArray[i] + "00" +j;
-                int count = getVoiceFileCount(provincecode);
-                if (count!=0){
-                    totle+=count;
-                    provinceresult.put(provincecode,count);
-                }
+            try{
+                runTask(provinceCodeArray,downLatch,i);
+            }catch (Exception e){
+                this.downLatch.countDown();
+                throw new RuntimeException();
             }
-            provinceresult.put(provinceCodeArray[i],totle);
-            resultDetail[i] = provinceresult.toString();
-            preResult.put(provinceCodeArray[i],totle);
-            /*result.add(provinceresult);*/
-            downLatch.countDown();
+
         }
     }
 
-
-    public class ProvinceTask implements Runnable{
-        private  String[] provinceCodeArray;
-        private int i;
-
-        public ProvinceTask(String[] provinceCodeArray, int i) {
-            this.provinceCodeArray = provinceCodeArray;
-            this.i = i;
-        }
-
-        @Override
-        public void run(){
-            Map<String,Integer> provinceresult = new HashMap();
-            int totle = 0;
-            for(int j=1; j<=5;j++){
+    public void runTask(String[] provinceCodeArray,CountDownLatch downLatch,int i) throws Exception{
+        long startTime = System.currentTimeMillis();
+        String provinceName = "";
+        provinceName = provinceDao.getProvinceNameByNumber(provinceCodeArray[i]);
+        System.out.println(provinceName+"开始");
+        Map<String,Integer> provinceresult = new HashMap();
+        int totle = 0;
+        String provinceASR = provinceDao.getProvinceASRByNumber(provinceCodeArray[i]);
+        String[] provinceASRArray = provinceASR.split(",");
+        for(String j : provinceASRArray){
                 /*newProvinceCodeArray.add(provinceCodeArray[i] + "00" +j);*/
-                String provincecode = provinceCodeArray[i] + "00" +j;
-                int count = getVoiceFileCount(provincecode);
-                if (count!=0){
-                    totle+=count;
-                    provinceresult.put(provincecode,count);
-                }
+            String provincecode = provinceCodeArray[i] + "00" +j;
+            int count = getVoiceFileCount(provincecode);
+            if (count!=0){
+                totle+=count;
+                provinceresult.put(provincecode,count);
             }
-            provinceresult.put(provinceCodeArray[i],totle);
-            resultDetail[i] = provinceresult.toString();
-            preResult.put(provinceCodeArray[i],totle);
-            /*result.add(provinceresult);*/
         }
+        System.out.println(provinceName+":"+totle);
+        provinceresult.put(provinceCodeArray[i],totle);
+        resultDetail[i] = provinceresult.toString();
+        int number = i+1;
+        preResult[i] = number+"."+provinceCodeArray[i]+"_"+provinceName+":"+totle;
+            /*result.add(provinceresult);*/
+        long endTime = System.currentTimeMillis();
+        long useTime = endTime - startTime;
+        System.out.println("查询"+provinceName+"用时："+ useTime + "毫秒.");
+        downLatch.countDown();
     }
 
-    public int getVoiceFileCount(String provincecode){
+    public int getVoiceFileCount(String provincecode) throws Exception{
         int count = 0;
         String url = "http://180.153.61.47:18090/"+provincecode+"/count/";
-        int overTime = 3000;
+        int overTime = 2000;
         String strResponse = "";
-        try{
-            strResponse = HttpDoGet(url, "UTF-8", overTime);
-        }catch (Exception e){
-            strResponse = "省份编码：" + provincecode + "不存在";
+        int ifLive = 0;
+        int connCount = 0;
+        long startTime = System.currentTimeMillis();
+        while (connCount <= maxConnCount){
+            try{
+                strResponse = HttpDoGet(url, "UTF-8", overTime);
+                ifLive = 1;
+            }catch (Exception e){
+                strResponse = "省份编码：" + provincecode + "不存在";
+                ifLive = 0;
+            }finally {
+                connCount++;
+            }
         }
+        long endTime = System.currentTimeMillis();
+        long useTime = endTime - startTime;
+        System.out.println(provincecode+"用时:"+useTime+"毫秒.");
         if (strResponse.equals("")){
             strResponse = "省份编码：" + provincecode + "不存在";
         }else {
-            Document doc = Jsoup.parse(strResponse);
-            Elements links = doc.select("a[href]");
-            for (Element link : links) {
-                String linkHref = link.attr("href");
-                String linkText = link.text();
-                if (linkText!=null && linkText!=""){
-                    if(linkText.contains("LOG")){
-                        if(linkText.contains(date)){
-                            int last = linkText.lastIndexOf("-");
-                            String number = linkText.substring(last+1,linkText.length());
-                            if(!number.equals("err")){
-                                count = Integer.valueOf(number);
-                            }else {
-                                errorProvinceListLength++;
-                                preErrorProvince.append(provincecode);
-                                preErrorProvince.append("\n");
-                                errorProvinceList.add(provincecode);
-                            }
-                        }
-                    }
-                }
-
+            if (ifLive == 1){
+                count = parseHTML(strResponse,provincecode,count);
             }
+
         }
         return count;
     }
 
-    public static String HttpDoGet(String url, String charset, int timeOut) {
+    public int parseHTML (String strResponse,String provincecode,int count) throws Exception{
+        Document doc = Jsoup.parse(strResponse);
+        Elements links = doc.select("a[href]");
+
+        for (Element link : links) {
+            String linkHref = link.attr("href");
+            String linkText = link.text();
+            String number;
+            if (linkText!=null && linkText!=""){
+                if(linkText.contains("LOG")){
+                    if(linkText.contains(date)){
+                        int one = linkText.lastIndexOf("-");
+                        int last = linkText.lastIndexOf(".");
+                        if(last == -1){
+                            last = linkText.length();
+                        }else {
+                            continue;
+                        }
+                        try{
+                            number = linkText.substring(one+1,last);
+                        }catch (Exception e){
+                            System.out.println("获取数据异常");
+                            number = "err";
+                        }
+                        if(!number.equals("err")){
+                            count = Integer.valueOf(number);
+                        }else {
+                            errorProvinceListLength++;
+                            preErrorProvince.append(provincecode);
+                            preErrorProvince.append("\n");
+                            errorProvinceList.add(provincecode);
+                        }
+                    }
+                }
+            }
+
+        }
+        return count;
+    }
+
+    public static String HttpDoGet (String url, String charset, int timeOut) throws Exception{
         Long startTime = System.currentTimeMillis();
         if (timeOut == 0) {
             // 默认5000，即5秒超时
@@ -263,7 +298,7 @@ public class CountVoiceFileAction extends ActionSupport{
             result = readInputStreamToString(in, charset);
             httpConn.disconnect();
         } catch(Exception e) {
-
+            throw e;
         } finally {
             if (in != null) {
                 try {

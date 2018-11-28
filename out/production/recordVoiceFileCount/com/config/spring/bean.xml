@@ -7,7 +7,7 @@
     <bean id="taskExecutor"
           class="org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor">
         <!-- 核心线程数 -->
-        <property name="corePoolSize" value="10" />
+        <property name="corePoolSize" value="20" />
         <!-- 最大线程数 -->
         <property name="maxPoolSize" value="100" />
         <!-- 队列最大长度 >=mainExecutor.maxSize -->

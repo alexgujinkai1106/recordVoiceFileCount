@@ -11,11 +11,13 @@
 <html>
 <head>
     <title>省份结果</title>
+    <%--<script src="jquery-3.3.1.min.js"/>--%>
 </head>
 <body>
     日期：<s:property value="date"/><br/>
     <h2>所有省份结果</h2>
-    <s:iterator value="resultStr">
+    一共查询<s:property value="resultStr"/>个省份。<br/>
+    <s:iterator value="preResult">
         <s:property/><br/>
     </s:iterator>
     <h2>具体省份结果</h2>
@@ -27,5 +29,18 @@
         <s:property/><br/>
     </s:iterator>
 
+    <%--&lt;%&ndash;javascript入口&ndash;%&gt;
+    <script>
+        window.onload = function () {
+            
+        }
+    </script>
+
+    &lt;%&ndash;jquery入口&ndash;%&gt;
+    <script type="text/javascript">
+        $(function () {
+
+        })
+    </script>--%>
 </body>
 </html>

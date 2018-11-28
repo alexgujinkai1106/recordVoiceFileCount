@@ -11,6 +11,9 @@
             <result name="success">/success.jsp</result>
             <result name="failed">/index.jsp</result>
         </action>
+        <action name="testAction" class="com.hibernate.core.TestAction">
+            <result>/test.jsp</result>
+        </action>
     </package>
 
 </struts>
